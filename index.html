@@ -1,4 +1,4 @@
-\<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -475,6 +475,18 @@ const tiles = {
   })
 };
 
+// Labels overlay for satellite/terrain (country names, city names, roads)
+const labelsOverlay = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd',
+  maxZoom: 20,
+  pane: 'overlayPane',
+  zIndex: 500,
+  opacity: 0.9
+});
+
+// Tiles that need the labels overlay
+const needsLabels = ['satellite', 'topo'];
+
 let currentTile = 'street';
 tiles.street.addTo(map);
 
@@ -488,14 +500,24 @@ map.on('mousemove', e => {
 });
 
 // Map type switcher
-document.querySelectorAll('.type-btn').forEach(btn => {
+document.querySelectorAll('.type-btn[data-type]').forEach(btn => {
   btn.addEventListener('click', () => {
     const type = btn.dataset.type;
     if (type === currentTile) return;
     map.removeLayer(tiles[currentTile]);
     tiles[type].addTo(map);
     currentTile = type;
-    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+    // Handle labels overlay
+    if (needsLabels.includes(type)) {
+      labelsOverlay.addTo(map);
+    } else {
+      if (map.hasLayer(labelsOverlay)) map.removeLayer(labelsOverlay);
+    }
+    // Keep borders on top if visible
+    if (bordersVisible && bordersLayer) {
+      bordersLayer.bringToFront();
+    }
+    document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
   });
 });
@@ -929,6 +951,7 @@ document.getElementById('borders-btn').addEventListener('click', async () => {
       }
     }).addTo(map);
     bordersLoaded = true;
+    bordersLayer.bringToFront();
     document.getElementById('borders-btn').textContent = 'Borders';
   } catch {
     bordersVisible = false;
