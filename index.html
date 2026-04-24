@@ -313,6 +313,31 @@
 
   /* No results */
   .no-results { padding: 16px; text-align: center; color: var(--muted); font-size: 14px; }
+
+  /* Street View Panel */
+  #sv-panel {
+    position: fixed; bottom: 70px; right: 70px;
+    width: 360px; background: var(--bg);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border); z-index: 1000;
+    display: none; overflow: hidden;
+    animation: slideIn 0.2s ease;
+  }
+  .sv-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid var(--border); }
+  #sv-close { background:none; border:none; cursor:pointer; color:var(--muted); font-size:16px; }
+  #sv-close:hover { color:var(--text); }
+  #sv-content { background:#000; min-height:200px; position:relative; }
+  #sv-img { width:100%; max-height:260px; object-fit:cover; display:block; cursor:pointer; }
+  #sv-img:hover { opacity:0.92; }
+  .sv-no-img { display:flex; flex-direction:column; align-items:center; justify-content:center; height:200px; gap:8px; background:var(--surface); }
+  .sv-no-img span { font-size:13px; color:var(--muted); text-align:center; padding:0 16px; }
+  #sv-nav { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-top:1px solid var(--border); }
+  .sv-nav-btn { background:var(--accent-light); color:var(--accent); border:none; border-radius:var(--radius-sm); padding:5px 12px; font-family:inherit; font-size:12px; font-weight:500; cursor:pointer; }
+  .sv-nav-btn:hover { background:#bfdbfe; }
+  .sv-nav-btn:disabled { opacity:0.4; cursor:default; }
+  #sv-streetview-btn { display:flex; align-items:center; justify-content:center; gap:6px; width:calc(100% - 24px); margin:8px 12px; padding:8px; background:var(--accent); color:white; border:none; border-radius:var(--radius-sm); font-family:inherit; font-size:13px; font-weight:500; cursor:pointer; }
+  #sv-streetview-btn:hover { background:#1d4ed8; }
+
 </style>
 </head>
 <body>
@@ -367,8 +392,33 @@
   <div class="info-coords" id="info-coords"></div>
   <div class="info-actions">
     <button class="info-action-btn" id="directions-btn">Directions</button>
+    <button class="info-action-btn" id="streetview-btn">Street View</button>
     <button class="info-action-btn" id="copy-btn">Copy coords</button>
   </div>
+</div>
+
+
+<!-- Street View Panel -->
+<div id="sv-panel">
+  <div class="sv-header">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0"></div>
+      <span style="font-size:15px;font-weight:600;color:var(--text)">Street View</span>
+    </div>
+    <button id="sv-close">✕</button>
+  </div>
+  <div id="sv-content">
+    <div id="sv-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;gap:10px">
+      <div class="spinner"></div>
+      <span style="font-size:13px;color:var(--muted)">Finding nearby imagery...</span>
+    </div>
+  </div>
+  <div id="sv-nav" style="display:none">
+    <button class="sv-nav-btn" id="sv-prev">← Prev</button>
+    <span id="sv-counter" style="font-size:12px;color:var(--muted)">1 / 1</span>
+    <button class="sv-nav-btn" id="sv-next">Next →</button>
+  </div>
+  <div id="sv-meta" style="padding:8px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);display:none"></div>
 </div>
 
 <!-- Directions Panel -->
@@ -753,6 +803,94 @@ map.on('click', e => {
 function showLoading(v) {
   document.getElementById('loading').style.display = v ? 'flex' : 'none';
 }
+
+
+// Street View (Mapillary)
+const MLY_TOKEN = 'MLY|26924929020478407|b94d6a7c9eba71617ac1bace64a22ca0';
+let svImages = [];
+let svIndex = 0;
+
+document.getElementById('streetview-btn').addEventListener('click', () => {
+  hideInfoCard();
+  openStreetView(currentLat, currentLng);
+});
+
+document.getElementById('sv-close').addEventListener('click', () => {
+  document.getElementById('sv-panel').style.display = 'none';
+});
+
+async function openStreetView(lat, lng) {
+  const panel = document.getElementById('sv-panel');
+  const content = document.getElementById('sv-content');
+  const nav = document.getElementById('sv-nav');
+  const meta = document.getElementById('sv-meta');
+
+  panel.style.display = 'block';
+  nav.style.display = 'none';
+  meta.style.display = 'none';
+  content.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;gap:10px"><div class=\"spinner\"></div><span style=\"font-size:13px;color:var(--muted)\">Finding nearby imagery...</span></div>';
+
+  const radius = 100; // metres
+  const url = `https://graph.mapillary.com/images?fields=id,thumb_2048_url,captured_at,compass_angle,geometry&bbox=${lng-0.003},${lat-0.003},${lng+0.003},${lat+0.003}&limit=20&access_token=${MLY_TOKEN}`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data.data || !data.data.length) {
+      content.innerHTML = '<div class=\"sv-no-img\"><span style=\"font-size:28px\">📷</span><span>No street-level imagery found nearby.<br>Coverage varies by location.</span></div>';
+      return;
+    }
+
+    // Sort by distance to clicked point
+    svImages = data.data.sort((a, b) => {
+      const da = dist(lat, lng, a.geometry.coordinates[1], a.geometry.coordinates[0]);
+      const db = dist(lat, lng, b.geometry.coordinates[1], b.geometry.coordinates[0]);
+      return da - db;
+    });
+    svIndex = 0;
+    showSvImage();
+  } catch(e) {
+    content.innerHTML = '<div class=\"sv-no-img\"><span>Failed to load imagery.<br>Check your connection.</span></div>';
+  }
+}
+
+function dist(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function showSvImage() {
+  const img = svImages[svIndex];
+  const content = document.getElementById('sv-content');
+  const nav = document.getElementById('sv-nav');
+  const meta = document.getElementById('sv-meta');
+  const counter = document.getElementById('sv-counter');
+
+  content.innerHTML = `<a href="https://www.mapillary.com/app/?image_key=${img.id}" target="_blank" title="Open full view on Mapillary">
+    <img id="sv-img" src="${img.thumb_2048_url}" alt="Street view" onerror="this.parentElement.parentElement.innerHTML='<div class=sv-no-img><span>Image failed to load</span></div>'"/>
+  </a>`;
+
+  nav.style.display = 'flex';
+  meta.style.display = 'block';
+
+  const date = img.captured_at ? new Date(img.captured_at).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'}) : 'Unknown date';
+  meta.textContent = `📅 ${date}  ·  ${svImages.length} photos nearby  ·  Click image to open in Mapillary`;
+
+  counter.textContent = `${svIndex + 1} / ${svImages.length}`;
+  document.getElementById('sv-prev').disabled = svIndex === 0;
+  document.getElementById('sv-next').disabled = svIndex === svImages.length - 1;
+}
+
+document.getElementById('sv-prev').addEventListener('click', () => {
+  if (svIndex > 0) { svIndex--; showSvImage(); }
+});
+document.getElementById('sv-next').addEventListener('click', () => {
+  if (svIndex < svImages.length - 1) { svIndex++; showSvImage(); }
+});
 
 // Keyboard shortcut: / to focus search
 document.addEventListener('keydown', e => {
