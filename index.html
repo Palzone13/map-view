@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -314,6 +314,9 @@
   /* No results */
   .no-results { padding: 16px; text-align: center; color: var(--muted); font-size: 14px; }
 
+  .country-tooltip { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text); padding: 4px 8px; box-shadow: var(--shadow); }
+
+
   /* Street View Panel */
   #sv-panel {
     position: fixed; bottom: 70px; right: 70px;
@@ -361,6 +364,7 @@
   <button class="type-btn active" data-type="street">Map</button>
   <button class="type-btn" data-type="satellite">Satellite</button>
   <button class="type-btn" data-type="topo">Terrain</button>
+  <button class="type-btn" id="borders-btn">Borders</button>
 </div>
 
 <!-- Zoom Controls -->
@@ -890,6 +894,48 @@ document.getElementById('sv-prev').addEventListener('click', () => {
 });
 document.getElementById('sv-next').addEventListener('click', () => {
   if (svIndex < svImages.length - 1) { svIndex++; showSvImage(); }
+});
+
+
+// Country borders toggle
+let bordersLayer = null;
+let bordersLoaded = false;
+let bordersVisible = false;
+
+document.getElementById('borders-btn').addEventListener('click', async () => {
+  bordersVisible = !bordersVisible;
+  document.getElementById('borders-btn').classList.toggle('active', bordersVisible);
+
+  if (!bordersVisible) {
+    if (bordersLayer) map.removeLayer(bordersLayer);
+    return;
+  }
+
+  if (bordersLoaded && bordersLayer) {
+    bordersLayer.addTo(map);
+    return;
+  }
+
+  document.getElementById('borders-btn').textContent = 'Loading...';
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson');
+    const data = await res.json();
+    bordersLayer = L.geoJSON(data, {
+      style: { color: '#e63946', weight: 1.5, opacity: 0.75, fillColor: '#e63946', fillOpacity: 0.04 },
+      onEachFeature: (feature, layer) => {
+        if (feature.properties && feature.properties.ADMIN) {
+          layer.bindTooltip(feature.properties.ADMIN, { sticky: true, className: 'country-tooltip', direction: 'top' });
+        }
+      }
+    }).addTo(map);
+    bordersLoaded = true;
+    document.getElementById('borders-btn').textContent = 'Borders';
+  } catch {
+    bordersVisible = false;
+    document.getElementById('borders-btn').classList.remove('active');
+    document.getElementById('borders-btn').textContent = 'Borders';
+    alert('Failed to load country borders.');
+  }
 });
 
 // Keyboard shortcut: / to focus search
